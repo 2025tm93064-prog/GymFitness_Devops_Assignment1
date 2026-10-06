@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ACEest Fitness | Training Plans</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="ACEest Fitness home">
+      <span class="brand-mark">A</span>
+      <span>ACEest <span class="brand-light">Fitness</span></span>
+    </a>
+    <span class="edition">TRAINING PLANS <span>01</span></span>
+  </header>
+
+  <main>
+    <section class="intro" aria-labelledby="page-title">
+      <p class="eyebrow">FUNCTIONAL FITNESS SYSTEM</p>
+      <h1 id="page-title">Choose your<br><em>training path.</em></h1>
+      <p class="intro-copy">A focused workout and nutrition outline for each goal.</p>
+    </section>
+
+    <section class="plan-browser" aria-label="Fitness programs">
+      <nav class="program-list" aria-label="Select a program">
+        {% for program_id, program in programs.items() %}
+        <a class="program-option{% if program_id == selected_id %} is-selected{% endif %}"
+           href="{{ url_for('index', program=program_id) }}"
+           {% if program_id == selected_id %}aria-current="page"{% endif %}>
+          <span class="option-number">0{{ loop.index }}</span>
+          <span class="option-name">{{ program.name }}</span>
+          <span class="option-arrow" aria-hidden="true">&#8599;</span>
+        </a>
+        {% endfor %}
+      </nav>
+
+      {% set selected = programs[selected_id] %}
+      <article class="plan-detail" id="program-panel" aria-live="polite">
+        <div class="plan-heading">
+          <p class="eyebrow">YOUR SELECTED PROGRAM</p>
+          <h2>{{ selected.name }}</h2>
+        </div>
+        <div class="plan-columns">
+          <section aria-labelledby="workout-title">
+            <h3 id="workout-title">Weekly training</h3>
+            <ol class="plan-list">
+              {% for item in selected.workout %}<li>{{ item }}</li>{% endfor %}
+            </ol>
+          </section>
+          <section aria-labelledby="nutrition-title">
+            <h3 id="nutrition-title">Nutrition outline</h3>
+            <ul class="plan-list nutrition-list">
+              {% for item in selected.diet %}<li>{{ item }}</li>{% endfor %}
+            </ul>
+          </section>
+        </div>
+        <p class="plan-footnote">ACEest Fitness &amp; Gym <span>PROGRAM 01</span></p>
+      </article>
+    </section>
+  </main>
+</body>
+</html>
