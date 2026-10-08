@@ -39,6 +39,40 @@ The image uses `python:3.12-slim`, installs dependencies in a cached layer, runs
 
 SQLite data is written to `instance/aceest_fitness.db`. When running the app in a disposable Docker container, mount a volume at `/app/instance` if the database should survive container removal.
 
+### Run the v1.3.0 container on a Linux VM
+
+Run these commands in the VM from the cloned repository directory. Port `8081` is used because Jenkins commonly uses `8080` on the same VM.
+
+```bash
+cd ~/GymFitness_Devops_Assignment1
+git switch main
+git pull origin main
+docker version
+docker build --no-cache -t aceest-fitness:v1.3.0 .
+docker run --rm aceest-fitness:v1.3.0 python -m pytest -q
+```
+
+The Docker version output should include both **Client** and **Server** sections, and the test command should pass. Create a named volume once to retain the SQLite database across container restarts:
+
+```bash
+docker volume create aceest-data
+```
+
+Start the app container, check the page and program API from the VM, then stop and remove the container when finished:
+
+```bash
+docker rm -f aceest-v130 2>/dev/null || true
+docker run -d --name aceest-v130 -p 8081:5000 -v aceest-data:/app/instance aceest-fitness:v1.3.0
+docker ps --filter name=aceest-v130
+curl -i http://localhost:8081/
+curl -f http://localhost:8081/api/programs
+docker logs aceest-v130
+docker stop aceest-v130
+docker rm aceest-v130
+```
+
+The HTTP checks should return status `200`; the API should list all three programs. To open the app from outside the VM, visit `http://<EC2-public-IP>:8081` and allow inbound TCP port `8081` in the EC2 security group, restricted to your IP where possible. If Docker reports permission denied for `/var/run/docker.sock`, run the Docker commands with `sudo` or grant the VM user Docker access; Docker group membership is effectively root-level access.
+
 ## CI/CD
 
 **GitHub Actions** ([.github/workflows/main.yml](.github/workflows/main.yml)) runs on every push and pull request:
