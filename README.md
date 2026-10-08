@@ -1,6 +1,6 @@
 # ACEest Fitness & Gym
 
-Version 1.2 is a Flask web app for browsing the three preset fitness programs, creating client profiles, estimating calories, and recording weekly adherence. Client and adherence data are stored in SQLite under Flask's `instance` directory and survive application restarts. The database file is local runtime data and is excluded from Git.
+Version 1.3 is a Flask web app for browsing the three preset fitness programs, creating client profiles, estimating calories, recording weekly adherence, logging workouts, and tracking body measurements with BMI. Client, adherence, workout, and measurement data are stored in SQLite under Flask's `instance` directory and survive application restarts. The database file is local runtime data and is excluded from Git.
 
 ## Run locally
 
@@ -18,6 +18,8 @@ Open <http://127.0.0.1:5000> in a browser.
 - `GET /api/programs` lists the available programs.
 - `GET /api/programs/<program_id>` returns one program. IDs are `fat-loss`, `muscle-gain`, and `beginner`.
 - `GET /api/clients` lists saved clients and their adherence history.
+- `POST /clients/<client_id>/workouts` logs a dated workout (Strength, Hypertrophy, Cardio, or Mobility).
+- `POST /clients/<client_id>/metrics` logs weight, height, waist, and body-fat measurements; BMI is calculated from the recorded weight and height.
 
 ## Tests
 
