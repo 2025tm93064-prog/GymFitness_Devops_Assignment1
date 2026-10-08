@@ -1,6 +1,6 @@
 # ACEest Fitness & Gym
 
-Version 1.1 is a Flask web app for browsing the three preset fitness programs and creating client profiles with a calorie estimate. Client profiles are held in memory for this milestone and are cleared when the app restarts; SQLite persistence is planned for a later milestone.
+Version 1.2 is a Flask web app for browsing the three preset fitness programs, creating client profiles, estimating calories, and recording weekly adherence. Client and adherence data are stored in SQLite under Flask's `instance` directory and survive application restarts. The database file is local runtime data and is excluded from Git.
 
 ## Run locally
 
@@ -17,6 +17,7 @@ Open <http://127.0.0.1:5000> in a browser.
 
 - `GET /api/programs` lists the available programs.
 - `GET /api/programs/<program_id>` returns one program. IDs are `fat-loss`, `muscle-gain`, and `beginner`.
+- `GET /api/clients` lists saved clients and their adherence history.
 
 ## Tests
 
@@ -33,6 +34,8 @@ docker run --rm aceest-fitness python -m pytest
 ```
 
 The image uses `python:3.12-slim`, installs dependencies in a cached layer, runs as a non-root user, and serves the app with gunicorn.
+
+SQLite data is written to `instance/aceest_fitness.db`. When running the app in a disposable Docker container, mount a volume at `/app/instance` if the database should survive container removal.
 
 ## CI/CD
 
