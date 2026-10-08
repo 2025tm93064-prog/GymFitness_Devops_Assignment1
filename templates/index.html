@@ -12,7 +12,7 @@
       <span class="brand-mark">A</span>
       <span>ACEest <span class="brand-light">Fitness</span></span>
     </a>
-    <span class="edition">TRAINING PLANS <span>1.1</span></span>
+    <span class="edition">TRAINING PLANS <span>1.2</span></span>
   </header>
 
   <main>
@@ -65,11 +65,12 @@
           <p class="eyebrow">CLIENT PROFILE</p>
           <h2 id="client-title">Build a training profile</h2>
         </div>
-        <p class="section-note">Client records are temporary and clear when the app restarts.</p>
+        <p class="section-note">Client profiles and weekly adherence are saved in SQLite.</p>
       </div>
 
       {% if error %}<p class="form-message error-message" role="alert">{{ error }}</p>{% endif %}
       {% if saved_client %}<p class="form-message success-message" role="status">Saved {{ saved_client.name }}. Estimated daily calories: {{ saved_client.calories }} kcal/day.</p>{% endif %}
+      {% if progress_saved %}<p class="form-message success-message" role="status">Saved {{ progress_saved.adherence }}% adherence for {{ progress_saved.week }}.</p>{% endif %}
 
       <form class="client-form" action="{{ url_for('create_client') }}" method="post">
         <label>
@@ -108,12 +109,27 @@
         <h3>Saved clients</h3>
         <div class="table-scroll">
           <table>
-            <thead><tr><th>Name</th><th>Age</th><th>Weight</th><th>Program</th><th>Adherence</th><th>Est. calories</th></tr></thead>
+            <thead><tr><th>Name</th><th>Age</th><th>Weight</th><th>Program</th><th>Adherence</th><th>Est. calories</th><th>Log weekly adherence</th><th>History</th></tr></thead>
             <tbody>
               {% for client in clients %}
               <tr>
                 <td>{{ client.name }}</td><td>{{ client.age }}</td><td>{{ client.weight }} kg</td>
                 <td>{{ client.program_name }}</td><td>{{ client.adherence }}%</td><td>{{ client.calories }} kcal</td>
+                <td>
+                  <form class="progress-form" action="{{ url_for('add_progress', client_id=client.id) }}" method="post">
+                    <input type="date" name="week" value="{{ today }}" required aria-label="Week date for {{ client.name }}">
+                    <input type="number" name="adherence" min="0" max="100" value="{{ client.adherence }}" required aria-label="Weekly adherence percentage for {{ client.name }}">
+                    <button type="submit">Log</button>
+                  </form>
+                </td>
+                <td>
+                  <details>
+                    <summary>{{ client.progress|length }} records</summary>
+                    <ul class="history-list">
+                      {% for entry in client.progress %}<li>{{ entry.week }}: {{ entry.adherence }}%</li>{% endfor %}
+                    </ul>
+                  </details>
+                </td>
               </tr>
               {% endfor %}
             </tbody>
