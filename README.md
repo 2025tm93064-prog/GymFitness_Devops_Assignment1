@@ -41,12 +41,30 @@ The image uses `python:3.12-slim`, installs dependencies in a cached layer, runs
 1. `build-and-lint`: installs dependencies, checks syntax with `compileall`, and lints with flake8.
 2. `docker-test`: builds the Docker image and runs Pytest inside the container.
 
-**Jenkins** ([Jenkinsfile](Jenkinsfile)) acts as a second, independent build check:
+**Jenkins** ([Jenkinsfile](Jenkinsfile)) acts as a second, independent build check. It checks out the repository, builds a clean Docker image, runs Pytest inside that image, and removes the image afterward.
 
-1. Pulls the latest code from GitHub.
-2. Builds the image from scratch (`--no-cache`).
-3. Runs Pytest inside the new image, then removes the image.
+### Create the Jenkins Pipeline job
 
-To set it up, create a Pipeline job on a Jenkins server that has Docker available, choose "Pipeline script from SCM", and point it at this repository's URL and the `main` branch. Enable "GitHub hook trigger for GITScm polling" (with a webhook) or "Poll SCM" so new commits start a build.
+The Jenkins server needs Git and Docker installed. The Jenkinsfile uses Linux `sh` steps, so configure a Linux Jenkins agent with Docker available. The Jenkins service account must be allowed to access the Docker daemon.
+
+1. Sign in to Jenkins and select **New Item**.
+2. Enter a job name, select **Pipeline**, then select **OK**.
+3. In the job configuration, find **Pipeline** and set **Definition** to **Pipeline script from SCM**.
+4. Set **SCM** to **Git**, enter this repository's URL, and add credentials if the repository is private.
+5. Set **Branch Specifier** to `*/main` and **Script Path** to `Jenkinsfile`.
+6. Select **Save**, then select **Build Now**.
+7. Open the build and check **Console Output**. A successful run should show checkout, Docker image build, Pytest, and image cleanup stages.
+
+To trigger builds automatically, configure either **GitHub hook trigger for GITScm polling** and a GitHub webhook pointed at `https://<jenkins-host>/github-webhook/`, or configure **Poll SCM** in the job. The Jenkins host must be reachable by GitHub for webhooks to work.
+
+If Docker commands fail with permission denied for `/var/run/docker.sock`, grant the Jenkins service account Docker access and restart Jenkins. On a Linux assignment VM, for example:
+
+```bash
+sudo usermod -aG docker jenkins
+sudo systemctl restart jenkins
+sudo -u jenkins docker version
+```
+
+Docker group membership grants effectively root-level control of the VM; use this only on a trusted assignment machine.
 
 The app is an assignment demo, not a production service.
