@@ -55,6 +55,7 @@ PROGRAMS = {
         ],
     },
 }
+WORKOUT_TYPES = ("Strength", "Hypertrophy", "Cardio", "Mobility")
 
 app = Flask(__name__)
 app.config["DATABASE"] = Path(app.instance_path) / "aceest_fitness.db"
@@ -97,6 +98,25 @@ def initialize_database():
                 adherence INTEGER NOT NULL,
                 FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS workouts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER NOT NULL,
+                workout_date TEXT NOT NULL,
+                workout_type TEXT NOT NULL,
+                duration_min INTEGER NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER NOT NULL,
+                metric_date TEXT NOT NULL,
+                weight REAL NOT NULL,
+                height_cm REAL NOT NULL,
+                waist_cm REAL NOT NULL,
+                body_fat REAL NOT NULL,
+                FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE
+            );
             """
         )
 
@@ -118,6 +138,25 @@ def load_clients():
                     (client["id"],),
                 ).fetchall()
             ]
+            client["workouts"] = [
+                dict(workout_row)
+                for workout_row in connection.execute(
+                    "SELECT workout_date, workout_type, duration_min, notes "
+                    "FROM workouts WHERE client_id = ? ORDER BY workout_date DESC, id DESC",
+                    (client["id"],),
+                ).fetchall()
+            ]
+            client["metrics"] = []
+            for metric_row in connection.execute(
+                "SELECT metric_date, weight, height_cm, waist_cm, body_fat "
+                "FROM metrics WHERE client_id = ? ORDER BY metric_date DESC, id DESC",
+                (client["id"],),
+            ).fetchall():
+                metric = dict(metric_row)
+                metric["bmi"] = round(
+                    metric["weight"] / (metric["height_cm"] / 100) ** 2, 1
+                )
+                client["metrics"].append(metric)
             clients.append(client)
         return clients
 
@@ -131,6 +170,7 @@ def render_home(selected_id="fat-loss", status=200, **context):
         "clients": load_clients(),
         "form_data": {},
         "today": date.today().isoformat(),
+        "workout_types": WORKOUT_TYPES,
     }
     template_context.update(context)
     return render_template("index.html", **template_context), status
@@ -240,6 +280,84 @@ def add_progress(client_id):
 @app.get("/api/clients")
 def list_clients():
     return jsonify(load_clients())
+
+
+@app.post("/clients/<int:client_id>/workouts")
+def add_workout(client_id):
+    workout_type = request.form.get("workout_type", "")
+    notes = request.form.get("notes", "").strip()
+    try:
+        workout_date = date.fromisoformat(request.form.get("workout_date", "")).isoformat()
+        duration = int(request.form.get("duration_min", ""))
+    except (TypeError, ValueError):
+        return render_home(status=400, error="Enter a valid workout date and duration.")
+
+    if workout_type not in WORKOUT_TYPES:
+        return render_home(status=400, error="Select a valid workout type.")
+    if not 1 <= duration <= 600:
+        return render_home(status=400, error="Workout duration must be between 1 and 600 minutes.")
+    if len(notes) > 500:
+        return render_home(status=400, error="Workout notes must be 500 characters or fewer.")
+
+    with database_connection() as connection:
+        client = connection.execute(
+            "SELECT program_id FROM clients WHERE id = ?", (client_id,)
+        ).fetchone()
+        if client is None:
+            return jsonify({"error": "Client not found"}), 404
+        connection.execute(
+            "INSERT INTO workouts "
+            "(client_id, workout_date, workout_type, duration_min, notes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (client_id, workout_date, workout_type, duration, notes),
+        )
+
+    return render_home(
+        client["program_id"],
+        201,
+        workout_saved={"workout_date": workout_date, "workout_type": workout_type},
+    )
+
+
+@app.post("/clients/<int:client_id>/metrics")
+def add_metric(client_id):
+    try:
+        metric_date = date.fromisoformat(request.form.get("metric_date", "")).isoformat()
+        weight = float(request.form.get("weight", ""))
+        height_cm = float(request.form.get("height_cm", ""))
+        waist_cm = float(request.form.get("waist_cm", ""))
+        body_fat = float(request.form.get("body_fat", ""))
+    except (TypeError, ValueError):
+        return render_home(status=400, error="Enter valid values for all body measurements.")
+
+    if not 1 <= weight <= 500:
+        return render_home(status=400, error="Weight must be between 1 and 500 kg.")
+    if not 50 <= height_cm <= 260:
+        return render_home(status=400, error="Height must be between 50 and 260 cm.")
+    if not 20 <= waist_cm <= 300:
+        return render_home(status=400, error="Waist measurement must be between 20 and 300 cm.")
+    if not 1 <= body_fat <= 75:
+        return render_home(status=400, error="Body fat must be between 1 and 75 percent.")
+
+    with database_connection() as connection:
+        client = connection.execute(
+            "SELECT program_id FROM clients WHERE id = ?", (client_id,)
+        ).fetchone()
+        if client is None:
+            return jsonify({"error": "Client not found"}), 404
+        connection.execute(
+            "INSERT INTO metrics "
+            "(client_id, metric_date, weight, height_cm, waist_cm, body_fat) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (client_id, metric_date, weight, height_cm, waist_cm, body_fat),
+        )
+
+    bmi = round(weight / (height_cm / 100) ** 2, 1)
+    return render_home(
+        client["program_id"],
+        201,
+        metric_saved={"metric_date": metric_date, "bmi": bmi},
+    )
 
 
 @app.get("/api/programs")

@@ -189,6 +189,30 @@ tbody tr:last-child td { border-bottom: 0; }
 .progress-form button { min-height: 32px; padding: 0 9px; border: 0; background: var(--green); color: white; cursor: pointer; }
 details summary { cursor: pointer; color: var(--green); }
 .history-list { margin: 8px 0 0; padding-left: 16px; line-height: 1.7; }
+.activity-cell { min-width: 230px; }
+.activity-details { margin-bottom: 7px; }
+.activity-details:last-child { margin-bottom: 0; }
+.activity-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 8px;
+  min-width: 300px;
+  margin-top: 10px;
+  padding: 10px;
+  background: #f4f3ed;
+}
+.activity-form label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; }
+.activity-form input, .activity-form select {
+  width: 100%;
+  min-height: 30px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+}
+.activity-form button { min-height: 32px; border: 0; background: var(--green); color: white; cursor: pointer; }
 
 @media (max-width: 700px) {
   .topbar { min-height: 62px; padding: 0 6vw; }

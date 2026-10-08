@@ -181,3 +181,133 @@ def test_invalid_weekly_adherence_is_rejected():
 
     assert response.status_code == 400
     assert len(client.get("/api/clients").get_json()[0]["progress"]) == 1
+
+
+def create_test_client(client, name="Asha"):
+    client.post(
+        "/clients",
+        data={
+            "name": name,
+            "age": "28",
+            "weight": "70",
+            "program_id": "fat-loss",
+            "adherence": "80",
+        },
+    )
+    return client.get("/api/clients").get_json()[0]["id"]
+
+
+def test_workout_is_saved_and_returned_in_client_history():
+    client = app.test_client()
+    client_id = create_test_client(client)
+
+    response = client.post(
+        f"/clients/{client_id}/workouts",
+        data={
+            "workout_date": "2026-10-08",
+            "workout_type": "Strength",
+            "duration_min": "45",
+            "notes": "Squats and bench press",
+        },
+    )
+
+    workout = client.get("/api/clients").get_json()[0]["workouts"][0]
+    assert response.status_code == 201
+    assert workout == {
+        "workout_date": "2026-10-08",
+        "workout_type": "Strength",
+        "duration_min": 45,
+        "notes": "Squats and bench press",
+    }
+    assert b"Workouts (1)" in response.data
+
+
+def test_invalid_workout_is_rejected():
+    client = app.test_client()
+    client_id = create_test_client(client)
+
+    response = client.post(
+        f"/clients/{client_id}/workouts",
+        data={
+            "workout_date": "2026-10-08",
+            "workout_type": "Invalid",
+            "duration_min": "0",
+            "notes": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert client.get("/api/clients").get_json()[0]["workouts"] == []
+
+
+def test_body_metric_is_saved_with_calculated_bmi():
+    client = app.test_client()
+    client_id = create_test_client(client)
+
+    response = client.post(
+        f"/clients/{client_id}/metrics",
+        data={
+            "metric_date": "2026-10-08",
+            "weight": "70",
+            "height_cm": "175",
+            "waist_cm": "82",
+            "body_fat": "21.5",
+        },
+    )
+
+    metric = client.get("/api/clients").get_json()[0]["metrics"][0]
+    assert response.status_code == 201
+    assert metric == {
+        "metric_date": "2026-10-08",
+        "weight": 70.0,
+        "height_cm": 175.0,
+        "waist_cm": 82.0,
+        "body_fat": 21.5,
+        "bmi": 22.9,
+    }
+    assert b"BMI: 22.9" in response.data
+
+
+def test_saved_client_page_offers_workout_and_metrics_forms():
+    client = app.test_client()
+    client_id = create_test_client(client)
+
+    response = client.get("/")
+
+    assert b"Workouts (0)" in response.data
+    assert b"Body metrics (0)" in response.data
+    assert f"/clients/{client_id}/workouts".encode() in response.data
+    assert f"/clients/{client_id}/metrics".encode() in response.data
+
+
+def test_invalid_body_metric_is_rejected():
+    client = app.test_client()
+    client_id = create_test_client(client)
+
+    response = client.post(
+        f"/clients/{client_id}/metrics",
+        data={
+            "metric_date": "2026-10-08",
+            "weight": "70",
+            "height_cm": "0",
+            "waist_cm": "82",
+            "body_fat": "21.5",
+        },
+    )
+
+    assert response.status_code == 400
+    assert client.get("/api/clients").get_json()[0]["metrics"] == []
+
+
+def test_workout_for_missing_client_returns_404():
+    response = app.test_client().post(
+        "/clients/999/workouts",
+        data={
+            "workout_date": "2026-10-08",
+            "workout_type": "Cardio",
+            "duration_min": "30",
+            "notes": "",
+        },
+    )
+
+    assert response.status_code == 404
