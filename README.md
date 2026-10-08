@@ -1,6 +1,6 @@
 # ACEest Fitness & Gym
 
-Version 1 is a Flask web app for browsing the three preset fitness programs from the original ACEest desktop prototype. It displays each program's workout and nutrition outline and provides read-only JSON endpoints. Client records and database persistence are planned for a later milestone.
+Version 1.1 is a Flask web app for browsing the three preset fitness programs and creating client profiles with a calorie estimate. Client profiles are held in memory for this milestone and are cleared when the app restarts; SQLite persistence is planned for a later milestone.
 
 ## Run locally
 

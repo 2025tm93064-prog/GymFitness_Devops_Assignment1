@@ -12,7 +12,7 @@
       <span class="brand-mark">A</span>
       <span>ACEest <span class="brand-light">Fitness</span></span>
     </a>
-    <span class="edition">TRAINING PLANS <span>01</span></span>
+    <span class="edition">TRAINING PLANS <span>1.1</span></span>
   </header>
 
   <main>
@@ -58,6 +58,71 @@
         <p class="plan-footnote">ACEest Fitness &amp; Gym <span>PROGRAM 01</span></p>
       </article>
     </section>
+
+    <section class="client-section" aria-labelledby="client-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">CLIENT PROFILE</p>
+          <h2 id="client-title">Build a training profile</h2>
+        </div>
+        <p class="section-note">Client records are temporary and clear when the app restarts.</p>
+      </div>
+
+      {% if error %}<p class="form-message error-message" role="alert">{{ error }}</p>{% endif %}
+      {% if saved_client %}<p class="form-message success-message" role="status">Saved {{ saved_client.name }}. Estimated daily calories: {{ saved_client.calories }} kcal/day.</p>{% endif %}
+
+      <form class="client-form" action="{{ url_for('create_client') }}" method="post">
+        <label>
+          <span>Client name</span>
+          <input name="name" type="text" maxlength="100" required value="{{ form_data.get('name', '') }}">
+        </label>
+        <label>
+          <span>Age</span>
+          <input name="age" type="number" min="1" max="120" required value="{{ form_data.get('age', '') }}">
+        </label>
+        <label>
+          <span>Weight (kg)</span>
+          <input name="weight" type="number" min="1" max="500" step="0.1" required value="{{ form_data.get('weight', '') }}">
+        </label>
+        <label>
+          <span>Fitness program</span>
+          <select name="program_id" id="client-program">
+            {% for program_id, program in programs.items() %}
+            <option value="{{ program_id }}" data-calorie-factor="{{ program.calorie_factor }}"{% if program_id == selected_id %} selected{% endif %}>{{ program.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          <span>Weekly adherence (%)</span>
+          <input name="adherence" type="number" min="0" max="100" required value="{{ form_data.get('adherence', '0') }}">
+        </label>
+        <output class="calorie-preview" id="calorie-estimate" aria-live="polite">Estimated daily calories: --</output>
+        <div class="form-actions">
+          <button class="save-button" type="submit">Save client</button>
+          <button class="reset-button" type="reset">Reset form</button>
+        </div>
+      </form>
+
+      {% if clients %}
+      <div class="client-list">
+        <h3>Saved clients</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Name</th><th>Age</th><th>Weight</th><th>Program</th><th>Adherence</th><th>Est. calories</th></tr></thead>
+            <tbody>
+              {% for client in clients %}
+              <tr>
+                <td>{{ client.name }}</td><td>{{ client.age }}</td><td>{{ client.weight }} kg</td>
+                <td>{{ client.program_name }}</td><td>{{ client.adherence }}%</td><td>{{ client.calories }} kcal</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+    </section>
   </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
