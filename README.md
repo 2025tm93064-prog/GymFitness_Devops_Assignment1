@@ -82,19 +82,21 @@ The HTTP checks should return status `200`; the API should list all three progra
 
 **Jenkins** ([Jenkinsfile](Jenkinsfile)) acts as a second, independent build check. It checks out the repository, builds a clean Docker image, runs Pytest inside that image, and removes the image afterward.
 
-### Create the Jenkins Pipeline job
+Jenkins also runs SonarQube analysis with the `sonarsource/sonar-scanner-cli` Docker image before building the app image. Configure the Jenkins environment variable `SONAR_HOST_URL` with the reachable SonarQube server URL, and add a **Secret text** credential with ID `sonarqube-token` containing a project analysis token. The scanner reads [sonar-project.properties](sonar-project.properties) and waits for the quality gate; a failed gate fails the pipeline. The Jenkins agent must be able to reach the SonarQube server and run Docker.
 
-The Jenkins server needs Git and Docker installed. The Jenkinsfile uses Linux `sh` steps, so configure a Linux Jenkins agent with Docker available. The Jenkins service account must be allowed to access the Docker daemon.
+### Trigger Jenkins builds for pull requests
 
-1. Sign in to Jenkins and select **New Item**.
-2. Enter a job name, select **Pipeline**, then select **OK**.
-3. In the job configuration, find **Pipeline** and set **Definition** to **Pipeline script from SCM**.
-4. Set **SCM** to **Git**, enter this repository's URL, and add credentials if the repository is private.
-5. Set **Branch Specifier** to `*/main` and **Script Path** to `Jenkinsfile`.
-6. Select **Save**, then select **Build Now**.
-7. Open the build and check **Console Output**. A successful run should show checkout, Docker image build, Pytest, and image cleanup stages.
+Use a Multibranch Pipeline so Jenkins discovers `Jenkinsfile` on `main`, feature branches, and pull-request revisions. The Jenkins server needs Git, Docker, the **Pipeline** plugin, and the **GitHub Branch Source** plugin. The Jenkins service account must be able to access Docker.
 
-To trigger builds automatically, configure either **GitHub hook trigger for GITScm polling** and a GitHub webhook pointed at `https://<jenkins-host>/github-webhook/`, or configure **Poll SCM** in the job. The Jenkins host must be reachable by GitHub for webhooks to work.
+1. In Jenkins, select **New Item**, enter a job name, choose **Multibranch Pipeline**, and select **OK**.
+2. Under **Branch Sources**, add **GitHub**. Select the repository owner and repository; add a GitHub credential if required.
+3. In the branch source discovery behaviours, enable **Discover branches** and **Discover pull requests from origin**. Choose whether PR builds test the PR head or merge it with the target branch; merge-with-target checks the combined change.
+4. Set the **Script Path** to `Jenkinsfile`, save the job, then select **Scan Multibranch Pipeline Now**. Jenkins should discover `main`, feature branches, and open PRs.
+5. In the GitHub repository, open **Settings > Webhooks > Add webhook**. Set the payload URL to `http://<jenkins-host>:8080/github-webhook/`, choose `application/json`, and enable **Pushes** and **Pull requests** events. Use `https://` if Jenkins is configured with TLS.
+6. Confirm the Jenkins host and webhook endpoint are reachable from GitHub. For an EC2 VM, configure its security group and host firewall to allow the webhook connection on the Jenkins port.
+7. Push a commit to a branch with an open PR, or open/update a PR. Jenkins should start the corresponding branch/PR job; check its **Console Output** for checkout, Docker build, Pytest, and image cleanup.
+
+The existing `Jenkinsfile` uses `checkout scm`, so Jenkins checks out the branch or PR revision selected by the Multibranch job. GitHub Actions also runs the repository's lint, Docker build, and tests for every push and pull request; Jenkins provides the separate VM-based build check.
 
 If Docker commands fail with permission denied for `/var/run/docker.sock`, grant the Jenkins service account Docker access and restart Jenkins. On a Linux assignment VM, for example:
 

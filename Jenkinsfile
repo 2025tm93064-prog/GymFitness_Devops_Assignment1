@@ -13,6 +13,7 @@ pipeline {
                 withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
                     sh '''
                         docker run --rm \
+                            --add-host=host.docker.internal:host-gateway \
                             -e SONAR_HOST_URL \
                             -e SONAR_TOKEN \
                             -v "$WORKSPACE:/usr/src" \
