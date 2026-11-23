@@ -84,7 +84,7 @@ pipeline {
                     }
                     def validRepo = (
                         params.DOCKERHUB_REPO ==~
-                            /[a-z0-9]+(?:[._-][a-z0-9]+)*\/[a-z0-9]+(?:[._-][a-z0-9]+)*/
+                            '[a-z0-9]+(?:[._-][a-z0-9]+)*/[a-z0-9]+(?:[._-][a-z0-9]+)*'
                     )
                     if (!validRepo) {
                         error('DOCKERHUB_REPO must be a lowercase namespace/repository name.')
