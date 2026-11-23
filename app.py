@@ -73,6 +73,9 @@ PROGRAMS = {
 WORKOUT_TYPES = ("Strength", "Hypertrophy", "Cardio", "Mobility")
 
 app = Flask(__name__)
+app.config["APP_VERSION"] = Path(__file__).with_name("VERSION").read_text(
+    encoding="utf-8"
+).strip()
 app.config["DATABASE"] = Path(app.instance_path) / "aceest_fitness.db"
 app.config["DATABASE_URL"] = os.environ.get("DATABASE_URL")
 app.config["DB_HOST"] = os.environ.get("DB_HOST")
@@ -226,6 +229,7 @@ def render_home(selected_id="fat-loss", status=200, **context):
         selected_id = "fat-loss"
     template_context = {
         "programs": PROGRAMS,
+        "app_version": app.config["APP_VERSION"],
         "selected_id": selected_id,
         "clients": load_clients(),
         "form_data": {},

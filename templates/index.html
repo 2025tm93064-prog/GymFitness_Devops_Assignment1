@@ -12,7 +12,7 @@
       <span class="brand-mark">A</span>
       <span>ACEest <span class="brand-light">Fitness</span></span>
     </a>
-    <span class="edition">TRAINING PLANS <span>1.3</span></span>
+    <span class="edition">TRAINING PLANS <span>{{ app_version }}</span></span>
   </header>
 
   <main>
@@ -65,7 +65,7 @@
           <p class="eyebrow">CLIENT PROFILE</p>
           <h2 id="client-title">Build a training profile</h2>
         </div>
-        <p class="section-note">Client profiles and weekly adherence are saved in SQLite.</p>
+        <p class="section-note">Client profiles and weekly adherence are saved in the database.</p>
       </div>
 
       {% if error %}<p class="form-message error-message" role="alert">{{ error }}</p>{% endif %}

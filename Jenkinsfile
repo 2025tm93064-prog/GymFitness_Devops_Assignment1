@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    options {
+        disableConcurrentBuilds()
+    }
+
     triggers {
         pollSCM('H/5 * * * *')
     }
@@ -14,7 +18,12 @@ pipeline {
         booleanParam(
             name: 'DEPLOY_TO_MINIKUBE',
             defaultValue: false,
-            description: 'Deploy to the configured Minikube cluster after publishing'
+            description: 'Manually deploy the selected strategy after publishing'
+        )
+        booleanParam(
+            name: 'AUTO_DEPLOY_MAIN',
+            defaultValue: true,
+            description: 'Automatically deploy successful main builds using rolling updates'
         )
         choice(
             name: 'DEPLOYMENT_STRATEGY',
@@ -26,7 +35,14 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                script {
+                    def checkoutInfo = checkout scm
+                    def branch = env.BRANCH_NAME ?: checkoutInfo.GIT_BRANCH
+                    if (!branch && !env.CHANGE_ID && params.AUTO_DEPLOY_MAIN != false) {
+                        error('Cannot identify the checked-out branch for automatic deployment.')
+                    }
+                    env.IS_MAIN_BUILD = (branch == 'main' || branch == 'origin/main').toString()
+                }
             }
         }
 
@@ -54,11 +70,16 @@ pipeline {
         stage('Build') {
             steps {
                 script {
-                    def releaseTag = sh(
+                    def version = readFile('VERSION').trim()
+                    if (!(version ==~ 'v[0-9]+[.][0-9]+[.][0-9]+')) {
+                        error('VERSION must contain a version like v1.4.0.')
+                    }
+                    def commit = sh(
                         returnStdout: true,
-                        script: 'git describe --tags --exact-match 2>/dev/null || true'
+                        script: 'git rev-parse --short=12 HEAD'
                     ).trim()
-                    env.IMAGE_TAG = releaseTag ?: "build-${env.BUILD_NUMBER}"
+                    env.IMAGE_TAG = "${version}-build-${env.BUILD_NUMBER}-${commit}"
+                    echo "Building release image ${env.IMAGE_TAG}"
                 }
                 sh 'docker build --no-cache -t "aceest-fitness:$IMAGE_TAG" .'
             }
@@ -101,7 +122,7 @@ pipeline {
                         docker push "$DOCKERHUB_REPO:$IMAGE_TAG"
                     '''
                     script {
-                        if (env.BRANCH_NAME == 'main') {
+                        if (env.IS_MAIN_BUILD == 'true') {
                             sh 'docker tag "$DOCKERHUB_REPO:$IMAGE_TAG" "$DOCKERHUB_REPO:latest"'
                             sh 'docker push "$DOCKERHUB_REPO:latest"'
                         }
@@ -113,7 +134,10 @@ pipeline {
         stage('Deploy to Minikube') {
             when {
                 expression {
-                    params.DEPLOY_TO_MINIKUBE && !env.CHANGE_ID
+                    !env.CHANGE_ID && (
+                        params.DEPLOY_TO_MINIKUBE ||
+                        (params.AUTO_DEPLOY_MAIN != false && env.IS_MAIN_BUILD == 'true')
+                    )
                 }
             }
             steps {
@@ -122,7 +146,8 @@ pipeline {
                     variable: 'KUBECONFIG'
                 )]) {
                     script {
-                        def strategy = params.DEPLOYMENT_STRATEGY
+                        def strategy = params.DEPLOY_TO_MINIKUBE ?
+                            params.DEPLOYMENT_STRATEGY : 'rolling'
                         def deploymentByStrategy = [
                             'rolling': 'aceest-app',
                             'blue-green': 'aceest-green',
@@ -134,13 +159,34 @@ pipeline {
                             'k8s/overlays/rolling' : "k8s/strategies/${strategy}"
                         def deployment = deploymentByStrategy[strategy]
 
-                        sh "kubectl apply -k ${overlay}"
+                        if (strategy == 'rolling') {
+                            sh '''
+                                set -eu
+                                release_overlay=$(mktemp -d "$WORKSPACE/k8s/.release.XXXXXX")
+                                trap 'rm -f "$release_overlay/kustomization.yaml"; rmdir "$release_overlay"' EXIT
+                                cat > "$release_overlay/kustomization.yaml" <<EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../overlays/rolling
+images:
+  - name: 2025tm93064/acefitness
+    newName: $DOCKERHUB_REPO
+    newTag: $IMAGE_TAG
+EOF
+                                kubectl apply -k "$release_overlay"
+                            '''
+                        } else {
+                            sh "kubectl apply -k ${overlay}"
+                        }
                         try {
                             withEnv(["DEPLOYMENT_NAME=${deployment}"]) {
-                                sh '''
-                                    kubectl -n aceest set image deployment/$DEPLOYMENT_NAME \
-                                        app="$DOCKERHUB_REPO:$IMAGE_TAG"
-                                '''
+                                if (strategy != 'rolling') {
+                                    sh '''
+                                        kubectl -n aceest set image deployment/$DEPLOYMENT_NAME \
+                                            app="$DOCKERHUB_REPO:$IMAGE_TAG"
+                                    '''
+                                }
                                 sh 'kubectl -n aceest rollout status deployment/$DEPLOYMENT_NAME --timeout=180s'
                             }
                         } catch (deploymentError) {

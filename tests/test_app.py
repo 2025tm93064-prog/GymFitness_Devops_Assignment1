@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from app import PROGRAMS, _database_url, app, initialize_database
@@ -16,6 +18,16 @@ def test_homepage_shows_default_program():
     assert response.status_code == 200
     assert b"Fat Loss (FL)" in response.data
     assert b"5x5 Back Squat" in response.data
+
+
+def test_homepage_displays_release_version():
+    version = Path(__file__).resolve().parents[1].joinpath("VERSION").read_text(
+        encoding="utf-8"
+    ).strip()
+
+    response = app.test_client().get("/")
+
+    assert f"<span>{version}</span>".encode() in response.data
 
 
 def test_health_and_readiness_endpoints():
