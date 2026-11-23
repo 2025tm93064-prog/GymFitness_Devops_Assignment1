@@ -86,6 +86,62 @@ The HTTP checks should return status `200`; the API should list all three progra
 
 Configure the Jenkins environment variable `SONAR_HOST_URL` with the reachable SonarQube server URL, and add a **Secret text** credential with ID `sonarqube-token` containing a project analysis token. The scanner reads [sonar-project.properties](sonar-project.properties) and waits for the quality gate; a failed gate fails the pipeline. Add a **Username with password** credential with ID `dockerhub-credentials` using a Docker Hub access token as the password. Jenkins uses the `DOCKERHUB_REPO` build parameter for the repository name, tags images with the Git tag or build number, and pushes `latest` from `main`. The Jenkins agent must be able to reach SonarQube and Docker Hub and run Docker.
 
+### SonarQube on a Rocky Linux VM
+
+These steps document the setup used with SonarQube 9.9 on the same VM as Jenkins and Docker. Use a Java version supported by your SonarQube version; the existing 9.9 installation previously ran with Java 17.
+
+1. Check the service and its logs:
+
+   ```bash
+   sudo systemctl status sonarqube --no-pager -l
+   sudo tail -n 60 /opt/sonarqube/logs/sonar.log
+   sudo tail -n 100 /opt/sonarqube/logs/nohup.log
+   ```
+
+   If SonarQube stops because Elasticsearch reports `UnsupportedOperationException` about the Security Manager, check the Java runtime. For this 9.9 installation, Java 17 resolved the issue:
+
+   ```bash
+   /usr/lib/jvm/java-17-openjdk/bin/java -version
+   ```
+
+   If Java 17 is installed at that path, set it for the SonarQube service without changing the system-wide Java version:
+
+   ```bash
+   sudo systemctl edit sonarqube
+   ```
+
+   Add and save the following service override (adjust the paths if Java 17 is installed elsewhere):
+
+   ```ini
+   [Service]
+   Environment="JAVA_HOME=/usr/lib/jvm/java-17-openjdk"
+   Environment="SONAR_JAVA_PATH=/usr/lib/jvm/java-17-openjdk/bin/java"
+   ```
+
+2. Restart and verify SonarQube. Startup can take a minute:
+
+   ```bash
+   sudo systemctl restart sonarqube
+   sudo systemctl status sonarqube --no-pager -l
+   curl -s http://localhost:9000/api/system/status
+   ```
+
+   The API should return a status of `UP`. If it does not, review the logs above.
+
+3. Generate a SonarQube token with permission to analyze the project. In Jenkins, open **Manage Jenkins > Credentials > System > Global credentials > Add Credentials**, choose **Secret text**, and set the ID to `sonarqube-token`. Do not commit or share the token.
+
+4. In **Manage Jenkins > System > Global properties > Environment variables**, set `SONAR_HOST_URL` to `http://host.docker.internal:9000` for this same-VM Docker setup. The Jenkinsfile maps `host.docker.internal` to the Docker host. Do not use `localhost` here: inside the scanner container it refers to the container, not the VM. If the URL is missing, the scanner may attempt to contact SonarQube Cloud instead.
+
+   If the scanner cannot connect, check the listening address and VM firewall:
+
+   ```bash
+   sudo ss -ltnp | grep ':9000'
+   ```
+
+   SonarQube must listen on an interface reachable from the Docker network. Limit access to trusted networks.
+
+5. Rerun the Jenkins build and verify that the scanner reports the intended SonarQube server and `QUALITY GATE STATUS: PASSED`. SonarQube 9.9's Python analyzer may warn that Python 3.12 is analyzed as 3.10; address this through a compatible analyzer or server upgrade rather than treating it as full Python 3.12 analysis.
+
 ### Trigger Jenkins builds for pull requests
 
 Use a Multibranch Pipeline so Jenkins discovers `Jenkinsfile` on `main`, feature branches, and pull-request revisions. The pipeline polls SCM every five minutes; configure the GitHub webhook below for faster push and pull-request triggers. The Jenkins server needs Git, Docker, the **Pipeline** plugin, and the **GitHub Branch Source** plugin. The Jenkins service account must be able to access Docker.

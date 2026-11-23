@@ -6,5 +6,5 @@ resources:
   - app.yaml
 images:
   - name: aceest-fitness
-    newName: your-dockerhub-username/aceest-fitness
-    newTag: latest
+    newName: 2025tm93064/acefitness
+    newTag: build-5
