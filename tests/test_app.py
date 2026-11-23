@@ -1,6 +1,6 @@
 import pytest
 
-from app import PROGRAMS, app, initialize_database
+from app import PROGRAMS, _database_url, app, initialize_database
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +16,35 @@ def test_homepage_shows_default_program():
     assert response.status_code == 200
     assert b"Fat Loss (FL)" in response.data
     assert b"5x5 Back Squat" in response.data
+
+
+def test_health_and_readiness_endpoints():
+    client = app.test_client()
+
+    health = client.get("/healthz")
+    readiness = client.get("/readyz")
+
+    assert health.status_code == 200
+    assert health.get_json() == {"status": "ok"}
+    assert readiness.status_code == 200
+    assert readiness.get_json() == {"status": "ready"}
+
+
+def test_postgres_url_escapes_credentials(monkeypatch):
+    monkeypatch.setitem(app.config, "DATABASE_URL", None)
+    monkeypatch.setitem(app.config, "DB_HOST", "postgres")
+    monkeypatch.setitem(app.config, "DB_PORT", 5432)
+    monkeypatch.setitem(app.config, "DB_NAME", "aceest_fitness")
+    monkeypatch.setitem(app.config, "DB_USER", "aceest")
+    monkeypatch.setitem(app.config, "DB_PASSWORD", "p@ss/word")
+
+    database_url = _database_url()
+
+    assert database_url.drivername == "postgresql+psycopg"
+    assert database_url.password == "p@ss/word"
+    assert database_url.render_as_string(hide_password=False) == (
+        "postgresql+psycopg://aceest:p%40ss%2Fword@postgres:5432/aceest_fitness"
+    )
 
 
 def test_homepage_can_select_another_program():

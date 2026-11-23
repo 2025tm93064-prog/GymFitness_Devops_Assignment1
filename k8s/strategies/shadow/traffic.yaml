@@ -1,0 +1,55 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: aceest-gateway
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - aceest.local
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: aceest-service
+spec:
+  host: aceest-service
+  subsets:
+    - name: primary
+      labels:
+        version: primary
+    - name: shadow
+      labels:
+        version: shadow
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: aceest-service
+spec:
+  hosts:
+    - aceest.local
+  gateways:
+    - aceest-gateway
+  http:
+    - match:
+        - method:
+            exact: GET
+      route:
+        - destination:
+            host: aceest-service
+            subset: primary
+      mirror:
+        host: aceest-service
+        subset: shadow
+      mirrorPercentage:
+        value: 100
+    - route:
+        - destination:
+            host: aceest-service
+            subset: primary
