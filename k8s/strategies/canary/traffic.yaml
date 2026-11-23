@@ -1,0 +1,48 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: aceest-gateway
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - aceest.local
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: aceest-service
+spec:
+  host: aceest-service
+  subsets:
+    - name: stable
+      labels:
+        version: stable
+    - name: canary
+      labels:
+        version: canary
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: aceest-service
+spec:
+  hosts:
+    - aceest.local
+  gateways:
+    - aceest-gateway
+  http:
+    - route:
+        - destination:
+            host: aceest-service
+            subset: stable
+          weight: 90
+        - destination:
+            host: aceest-service
+            subset: canary
+          weight: 10

@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aceest
+resources:
+  - ../../base
+  - deployments.yaml
+  - service.yaml
+  - traffic.yaml
+images:
+  - name: aceest-stable
+    newName: your-dockerhub-username/aceest-fitness
+  - name: aceest-canary
+    newName: your-dockerhub-username/aceest-fitness

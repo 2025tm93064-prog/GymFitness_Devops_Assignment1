@@ -1,9 +1,24 @@
 from contextlib import contextmanager
 from datetime import date
+import os
 from pathlib import Path
-import sqlite3
 
 from flask import Flask, jsonify, render_template, request
+from sqlalchemy import (
+    Column,
+    Float,
+    ForeignKey,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    event,
+    text,
+)
+from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.pool import NullPool
 
 
 PROGRAMS = {
@@ -59,73 +74,110 @@ WORKOUT_TYPES = ("Strength", "Hypertrophy", "Cardio", "Mobility")
 
 app = Flask(__name__)
 app.config["DATABASE"] = Path(app.instance_path) / "aceest_fitness.db"
+app.config["DATABASE_URL"] = os.environ.get("DATABASE_URL")
+app.config["DB_HOST"] = os.environ.get("DB_HOST")
+app.config["DB_PORT"] = int(os.environ.get("DB_PORT", "5432"))
+app.config["DB_NAME"] = os.environ.get("DB_NAME", "aceest_fitness")
+app.config["DB_USER"] = os.environ.get("DB_USER", "aceest")
+app.config["DB_PASSWORD"] = os.environ.get("DB_PASSWORD", "")
+
+metadata = MetaData()
+clients_table = Table(
+    "clients",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("name", String(100), nullable=False, unique=True),
+    Column("age", Integer, nullable=False),
+    Column("weight", Float, nullable=False),
+    Column("program_id", String(50), nullable=False),
+    Column("adherence", Integer, nullable=False),
+    Column("calories", Integer, nullable=False),
+)
+progress_table = Table(
+    "progress",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("client_id", Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False),
+    Column("week", String(10), nullable=False),
+    Column("adherence", Integer, nullable=False),
+)
+workouts_table = Table(
+    "workouts",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("client_id", Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False),
+    Column("workout_date", String(10), nullable=False),
+    Column("workout_type", String(30), nullable=False),
+    Column("duration_min", Integer, nullable=False),
+    Column("notes", String(500), nullable=False, default=""),
+)
+metrics_table = Table(
+    "metrics",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("client_id", Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False),
+    Column("metric_date", String(10), nullable=False),
+    Column("weight", Float, nullable=False),
+    Column("height_cm", Float, nullable=False),
+    Column("waist_cm", Float, nullable=False),
+    Column("body_fat", Float, nullable=False),
+)
+
+
+def _database_url():
+    if app.config.get("DATABASE_URL"):
+        return make_url(app.config["DATABASE_URL"])
+    if app.config.get("DB_HOST"):
+        return URL.create(
+            "postgresql+psycopg",
+            username=app.config["DB_USER"],
+            password=app.config["DB_PASSWORD"],
+            host=app.config["DB_HOST"],
+            port=app.config["DB_PORT"],
+            database=app.config["DB_NAME"],
+        )
+    database_path = Path(app.config["DATABASE"])
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    return URL.create("sqlite", database=str(database_path))
+
+
+def _database_engine():
+    database_url = _database_url()
+    engine = app.extensions.get("database_engine")
+    if engine is not None and app.extensions["database_engine_url"] == database_url:
+        return engine
+    if engine is not None:
+        engine.dispose()
+
+    engine_options = {"pool_pre_ping": True}
+    if database_url.get_backend_name() == "sqlite":
+        engine_options["poolclass"] = NullPool
+    engine = create_engine(database_url, **engine_options)
+    if database_url.get_backend_name() == "sqlite":
+        @event.listens_for(engine, "connect")
+        def enable_sqlite_foreign_keys(connection, _):
+            connection.execute("PRAGMA foreign_keys = ON")
+
+    app.extensions["database_engine"] = engine
+    app.extensions["database_engine_url"] = database_url
+    return engine
 
 
 @contextmanager
 def database_connection():
-    database_path = Path(app.config["DATABASE"])
-    database_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(database_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    try:
+    with _database_engine().begin() as connection:
         yield connection
-        connection.commit()
-    except Exception:
-        connection.rollback()
-        raise
-    finally:
-        connection.close()
 
 
 def initialize_database():
-    with database_connection() as connection:
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS clients (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                age INTEGER NOT NULL,
-                weight REAL NOT NULL,
-                program_id TEXT NOT NULL,
-                adherence INTEGER NOT NULL,
-                calories INTEGER NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS progress (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                client_id INTEGER NOT NULL,
-                week TEXT NOT NULL,
-                adherence INTEGER NOT NULL,
-                FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS workouts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                client_id INTEGER NOT NULL,
-                workout_date TEXT NOT NULL,
-                workout_type TEXT NOT NULL,
-                duration_min INTEGER NOT NULL,
-                notes TEXT NOT NULL DEFAULT '',
-                FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                client_id INTEGER NOT NULL,
-                metric_date TEXT NOT NULL,
-                weight REAL NOT NULL,
-                height_cm REAL NOT NULL,
-                waist_cm REAL NOT NULL,
-                body_fat REAL NOT NULL,
-                FOREIGN KEY (client_id) REFERENCES clients (id) ON DELETE CASCADE
-            );
-            """
-        )
+    metadata.create_all(_database_engine())
 
 
 def load_clients():
     with database_connection() as connection:
         client_rows = connection.execute(
-            "SELECT * FROM clients ORDER BY id DESC"
-        ).fetchall()
+            text("SELECT * FROM clients ORDER BY id DESC")
+        ).mappings().all()
         clients = []
         for row in client_rows:
             client = dict(row)
@@ -133,25 +185,33 @@ def load_clients():
             client["progress"] = [
                 dict(progress_row)
                 for progress_row in connection.execute(
-                    "SELECT week, adherence FROM progress "
-                    "WHERE client_id = ? ORDER BY id DESC",
-                    (client["id"],),
-                ).fetchall()
+                    text(
+                        "SELECT week, adherence FROM progress "
+                        "WHERE client_id = :client_id ORDER BY id DESC"
+                    ),
+                    {"client_id": client["id"]},
+                ).mappings().all()
             ]
             client["workouts"] = [
                 dict(workout_row)
                 for workout_row in connection.execute(
-                    "SELECT workout_date, workout_type, duration_min, notes "
-                    "FROM workouts WHERE client_id = ? ORDER BY workout_date DESC, id DESC",
-                    (client["id"],),
-                ).fetchall()
+                    text(
+                        "SELECT workout_date, workout_type, duration_min, notes "
+                        "FROM workouts WHERE client_id = :client_id "
+                        "ORDER BY workout_date DESC, id DESC"
+                    ),
+                    {"client_id": client["id"]},
+                ).mappings().all()
             ]
             client["metrics"] = []
             for metric_row in connection.execute(
-                "SELECT metric_date, weight, height_cm, waist_cm, body_fat "
-                "FROM metrics WHERE client_id = ? ORDER BY metric_date DESC, id DESC",
-                (client["id"],),
-            ).fetchall():
+                text(
+                    "SELECT metric_date, weight, height_cm, waist_cm, body_fat "
+                    "FROM metrics WHERE client_id = :client_id "
+                    "ORDER BY metric_date DESC, id DESC"
+                ),
+                {"client_id": client["id"]},
+            ).mappings().all():
                 metric = dict(metric_row)
                 metric["bmi"] = round(
                     metric["weight"] / (metric["height_cm"] / 100) ** 2, 1
@@ -218,18 +278,25 @@ def create_client():
     calories = int(weight * program["calorie_factor"])
     try:
         with database_connection() as connection:
-            cursor = connection.execute(
-                "INSERT INTO clients "
-                "(name, age, weight, program_id, adherence, calories) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (name, age, weight, program_id, adherence, calories),
+            result = connection.execute(
+                clients_table.insert().values(
+                    name=name,
+                    age=age,
+                    weight=weight,
+                    program_id=program_id,
+                    adherence=adherence,
+                    calories=calories,
+                )
             )
-            client_id = cursor.lastrowid
             connection.execute(
-                "INSERT INTO progress (client_id, week, adherence) VALUES (?, ?, ?)",
-                (client_id, date.today().isoformat(), adherence),
+                progress_table.insert().values(
+                    client_id=result.inserted_primary_key[0],
+                    week=date.today().isoformat(),
+                    adherence=adherence,
+                )
             )
-    except sqlite3.IntegrityError:
+            client_id = result.inserted_primary_key[0]
+    except IntegrityError:
         return render_home(
             selected_id,
             409,
@@ -258,16 +325,19 @@ def add_progress(client_id):
 
     with database_connection() as connection:
         client = connection.execute(
-            "SELECT program_id FROM clients WHERE id = ?", (client_id,)
-        ).fetchone()
+            text("SELECT program_id FROM clients WHERE id = :client_id"),
+            {"client_id": client_id},
+        ).mappings().first()
         if client is None:
             return jsonify({"error": "Client not found"}), 404
         connection.execute(
-            "INSERT INTO progress (client_id, week, adherence) VALUES (?, ?, ?)",
-            (client_id, week, adherence),
+            progress_table.insert().values(
+                client_id=client_id, week=week, adherence=adherence
+            )
         )
         connection.execute(
-            "UPDATE clients SET adherence = ? WHERE id = ?", (adherence, client_id)
+            text("UPDATE clients SET adherence = :adherence WHERE id = :client_id"),
+            {"adherence": adherence, "client_id": client_id},
         )
 
     return render_home(
@@ -301,15 +371,19 @@ def add_workout(client_id):
 
     with database_connection() as connection:
         client = connection.execute(
-            "SELECT program_id FROM clients WHERE id = ?", (client_id,)
-        ).fetchone()
+            text("SELECT program_id FROM clients WHERE id = :client_id"),
+            {"client_id": client_id},
+        ).mappings().first()
         if client is None:
             return jsonify({"error": "Client not found"}), 404
         connection.execute(
-            "INSERT INTO workouts "
-            "(client_id, workout_date, workout_type, duration_min, notes) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (client_id, workout_date, workout_type, duration, notes),
+            workouts_table.insert().values(
+                client_id=client_id,
+                workout_date=workout_date,
+                workout_type=workout_type,
+                duration_min=duration,
+                notes=notes,
+            )
         )
 
     return render_home(
@@ -341,15 +415,20 @@ def add_metric(client_id):
 
     with database_connection() as connection:
         client = connection.execute(
-            "SELECT program_id FROM clients WHERE id = ?", (client_id,)
-        ).fetchone()
+            text("SELECT program_id FROM clients WHERE id = :client_id"),
+            {"client_id": client_id},
+        ).mappings().first()
         if client is None:
             return jsonify({"error": "Client not found"}), 404
         connection.execute(
-            "INSERT INTO metrics "
-            "(client_id, metric_date, weight, height_cm, waist_cm, body_fat) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (client_id, metric_date, weight, height_cm, waist_cm, body_fat),
+            metrics_table.insert().values(
+                client_id=client_id,
+                metric_date=metric_date,
+                weight=weight,
+                height_cm=height_cm,
+                waist_cm=waist_cm,
+                body_fat=body_fat,
+            )
         )
 
     bmi = round(weight / (height_cm / 100) ** 2, 1)
@@ -363,6 +442,22 @@ def add_metric(client_id):
 @app.get("/api/programs")
 def list_programs():
     return jsonify(PROGRAMS)
+
+
+@app.get("/healthz")
+def health_check():
+    return jsonify({"status": "ok"})
+
+
+@app.get("/readyz")
+def readiness_check():
+    try:
+        with database_connection() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        app.logger.exception("Database readiness check failed")
+        return jsonify({"status": "not ready"}), 503
+    return jsonify({"status": "ready"})
 
 
 @app.get("/api/programs/<program_id>")
