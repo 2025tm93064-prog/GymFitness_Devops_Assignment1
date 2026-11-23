@@ -1,6 +1,6 @@
 # ACEest Fitness & Gym
 
-Version 1.3 is a Flask web app for browsing the three preset fitness programs, creating client profiles, estimating calories, recording weekly adherence, logging workouts, and tracking body measurements with BMI. Local runs default to SQLite under Flask's `instance` directory. Kubernetes runs use PostgreSQL so deployment strategies can run multiple app replicas against the same data.
+ACEest Fitness is a Flask web app for browsing the three preset fitness programs, creating client profiles, estimating calories, recording weekly adherence, logging workouts, and tracking body measurements with BMI. The version in [VERSION](VERSION) is displayed on the homepage. Local runs default to SQLite under Flask's `instance` directory. Kubernetes runs use PostgreSQL so deployment strategies can run multiple app replicas against the same data.
 
 ## Run locally
 
@@ -41,7 +41,22 @@ The image uses `python:3.12-slim`, installs dependencies in a cached layer, runs
 
 SQLite data is written to `instance/aceest_fitness.db`. When running the app in a disposable Docker container, mount a volume at `/app/instance` if the local database should survive container removal.
 
-### Run the v1.3.0 container on a Linux VM
+### Push a version to Docker Hub
+
+Jenkins publishes tested images automatically. To publish manually from the Rocky Linux VM, first check out the intended application revision and run the following from the repository directory. The image contains the currently checked-out code. Use a unique tag so an existing release is not overwritten.
+
+```bash
+git rev-parse HEAD
+docker login --username 2025tm93064
+IMAGE_TAG="$(cat VERSION)-manual-$(date -u +%Y%m%d%H%M%S)-$(git rev-parse --short=12 HEAD)"
+docker build -t "2025tm93064/acefitness:$IMAGE_TAG" . && \
+  docker run --rm "2025tm93064/acefitness:$IMAGE_TAG" python -m pytest -q && \
+  docker push "2025tm93064/acefitness:$IMAGE_TAG"
+```
+
+Enter a Docker Hub access token when prompted; do not put it in the command line or Git. Docker may store login credentials in its configuration, so use a [credential store](https://docs.docker.com/reference/cli/docker/login/#credential-stores) on shared machines. This manual login is separate from Jenkins' `dockerhub-credentials`.
+
+### Run the current container on a Linux VM
 
 Run these commands in the VM from the cloned repository directory. Port `8081` is used because Jenkins commonly uses `8080` on the same VM.
 
@@ -50,8 +65,8 @@ cd ~/GymFitness_Devops_Assignment1
 git switch main
 git pull origin main
 docker version
-docker build --no-cache -t aceest-fitness:v1.3.0 .
-docker run --rm aceest-fitness:v1.3.0 python -m pytest -q
+docker build --no-cache -t aceest-fitness:local .
+docker run --rm aceest-fitness:local python -m pytest -q
 ```
 
 The Docker version output should include both **Client** and **Server** sections, and the test command should pass. Create a named volume once to retain the SQLite database across container restarts:
@@ -63,14 +78,14 @@ docker volume create aceest-data
 Start the app container, check the page and program API from the VM, then stop and remove the container when finished:
 
 ```bash
-docker rm -f aceest-v130 2>/dev/null || true
-docker run -d --name aceest-v130 -p 8081:5000 -v aceest-data:/app/instance aceest-fitness:v1.3.0
-docker ps --filter name=aceest-v130
+docker rm -f aceest-local 2>/dev/null || true
+docker run -d --name aceest-local -p 8081:5000 -v aceest-data:/app/instance aceest-fitness:local
+docker ps --filter name=aceest-local
 curl -i http://localhost:8081/
 curl -f http://localhost:8081/api/programs
-docker logs aceest-v130
-docker stop aceest-v130
-docker rm aceest-v130
+docker logs aceest-local
+docker stop aceest-local
+docker rm aceest-local
 ```
 
 The HTTP checks should return status `200`; the API should list all three programs. To open the app from outside the VM, visit `http://<EC2-public-IP>:8081` and allow inbound TCP port `8081` in the EC2 security group, restricted to your IP where possible. If Docker reports permission denied for `/var/run/docker.sock`, run the Docker commands with `sudo` or grant the VM user Docker access; Docker group membership is effectively root-level access.
@@ -84,7 +99,7 @@ The HTTP checks should return status `200`; the API should list all three progra
 
 **Jenkins** ([Jenkinsfile](Jenkinsfile)) checks out the repository, runs SonarQube analysis, builds a clean Docker image, runs Pytest inside it, and publishes versioned images to Docker Hub only after tests pass. Pull-request builds do not receive SonarQube or Docker Hub credentials.
 
-Configure the Jenkins environment variable `SONAR_HOST_URL` with the reachable SonarQube server URL, and add a **Secret text** credential with ID `sonarqube-token` containing a project analysis token. The scanner reads [sonar-project.properties](sonar-project.properties) and waits for the quality gate; a failed gate fails the pipeline. Add a **Username with password** credential with ID `dockerhub-credentials` using a Docker Hub access token as the password. The `DOCKERHUB_REPO` build parameter defaults to `2025tm93064/acefitness` for automatic builds and can be overridden for a manual build. Jenkins tags images with the Git tag or build number, and pushes `latest` from `main` in a Multibranch Pipeline. The Jenkins agent must be able to reach SonarQube and Docker Hub and run Docker.
+Configure the Jenkins environment variable `SONAR_HOST_URL` with the reachable SonarQube server URL, and add a **Secret text** credential with ID `sonarqube-token` containing a project analysis token. The scanner reads [sonar-project.properties](sonar-project.properties) and waits for the quality gate; a failed gate fails the pipeline. Add a **Username with password** credential with ID `dockerhub-credentials` using a Docker Hub access token as the password. The `DOCKERHUB_REPO` build parameter defaults to `2025tm93064/acefitness` for automatic builds and can be overridden for a manual build. Jenkins reads `VERSION` and publishes an image tagged `v1.4.0-build-<build-number>-<12-character-commit>`, as well as `latest` for `main`. Builds do not run concurrently. The Jenkins agent must be able to reach SonarQube and Docker Hub and run Docker.
 
 ### SonarQube on a Rocky Linux VM
 
@@ -178,6 +193,7 @@ minikube service aceest-service -n aceest --url
 ```
 
 The app is exposed on NodePort `30080`. Kubernetes creates the PostgreSQL data claim; its storage class must support persistent volumes.
+The checked-in rolling overlay uses a baseline image. Applying it directly after a Jenkins deployment can revert the app image; Jenkins renders the current build's image into a temporary overlay before applying it.
 
 ### Deployment strategies
 
@@ -191,9 +207,25 @@ Install Istio in Minikube before applying the canary, shadow, or A/B manifests. 
 
 Update the blue/stable image tags in the strategy manifests to a previously published Docker Hub image, and the green/candidate tags to the release under test. Keep database changes backward-compatible while old and new versions run concurrently.
 
-### Optional Jenkins deployment
+### Jenkins deployment
 
-For automated deployment, add a Jenkins **Secret file** credential with ID `minikube-kubeconfig`, containing a kubeconfig usable by the Jenkins agent. The agent also needs `kubectl` and network access to the cluster. Run the Multibranch build with `DEPLOY_TO_MINIKUBE=true` and choose a `DEPLOYMENT_STRATEGY`. The parameter defaults to deployment disabled so builds do not change a cluster until it is configured.
+Add a Jenkins **Secret file** credential with ID `minikube-kubeconfig`, containing a kubeconfig usable by the Jenkins agent. The agent also needs `kubectl` on its PATH and network access to the cluster. Create the `aceest-db` secret above before deploying.
+
+The job polls its configured SCM every five minutes. After a feature branch is merged into `main`, a successful main build publishes its version/build/commit image and deploys that exact image with the rolling strategy. `AUTO_DEPLOY_MAIN` defaults to true; set it to false for a manual build to opt out. Set `DEPLOY_TO_MINIKUBE=true` and select `DEPLOYMENT_STRATEGY` to manually deploy another strategy. PR builds do not publish or deploy. For a regular Pipeline job, configure SCM to track `main`; PR detection requires a Multibranch Pipeline.
+
+After the merge, check Jenkins **Console Output** for the selected image, passing tests, push, and successful rollout. With a kubeconfig that can reach the same cluster, verify on the VM:
+
+```bash
+kubectl -n aceest get secret aceest-db
+kubectl -n aceest rollout status deployment/aceest-app --timeout=180s
+kubectl -n aceest get deployment aceest-app -o jsonpath='{.spec.template.spec.containers[?(@.name=="app")].image}{"\n"}'
+kubectl -n aceest get pods,services
+minikube service aceest-service -n aceest --url
+```
+
+Compare the deployment image with the image tag in that Jenkins build and Docker Hub, then open the service URL and check the displayed version. A failed rolling rollout can be reverted with `kubectl -n aceest rollout undo deployment/aceest-app`; the pipeline does not automatically undo it.
+
+`VERSION` and the image tag do not create a Git tag. If a Git release tag is needed, create and push it on the merged `main` commit after verifying the build, rather than tagging the feature branch.
 
 ## Assignment 2 report
 
