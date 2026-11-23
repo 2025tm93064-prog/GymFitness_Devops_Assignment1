@@ -8,7 +8,7 @@ pipeline {
     parameters {
         string(
             name: 'DOCKERHUB_REPO',
-            defaultValue: 'your-dockerhub-username/aceest-fitness',
+            defaultValue: '2025tm93064/acefitness',
             description: 'Docker Hub repository for versioned application images'
         )
         booleanParam(
